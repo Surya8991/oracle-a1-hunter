@@ -16,6 +16,9 @@ permissions:
   contents: read
   actions: write             # lets a successful run disable future runs
 
+env:
+  TZ: Asia/Kolkata           # log timestamps in IST
+
 jobs:
   hunt:
     runs-on: ubuntu-latest

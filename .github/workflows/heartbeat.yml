@@ -7,6 +7,9 @@ on:
     - cron: '30 3 * * *'   # 03:30 UTC = 09:00 IST, daily
   workflow_dispatch: {}
 
+env:
+  TZ: Asia/Kolkata
+
 jobs:
   heartbeat:
     runs-on: ubuntu-latest
@@ -19,7 +22,7 @@ jobs:
           import os, json, urllib.request, datetime
           wh = os.environ.get('DISCORD_WEBHOOK', '')
           if wh:
-              now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+              now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M IST')
               msg = "\U0001FAC0 Oracle A1 Hunter heartbeat — still running and hunting the free A1 (no instance grabbed yet). " + now
               data = json.dumps({"username": "Oracle Bot", "content": msg}).encode()
               hdrs = {'Content-Type': 'application/json', 'User-Agent': 'OracleA1Hunter'}
