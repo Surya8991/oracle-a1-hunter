@@ -162,3 +162,23 @@ jobs:
               hdrs = {'Content-Type': 'application/json', 'User-Agent': 'OracleA1Hunter'}
               urllib.request.urlopen(urllib.request.Request(wh, data=data, headers=hdrs), timeout=15)
           PY
+
+      # Keeps a continuous ~5-min chain going WITHOUT relying on GitHub's
+      # unreliable cron. Only re-triggers on a normal "still hunting" run
+      # (created == false). On success the schedule is disabled instead, and on
+      # an infra error the check step is skipped so the chain stops (and the
+      # failure alert fires). Needs a PAT in secrets.DISPATCH_PAT because the
+      # built-in GITHUB_TOKEN is blocked from re-triggering workflows.
+      - name: Self-trigger the next run
+        if: steps.check.outputs.created == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.DISPATCH_PAT }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "DISPATCH_PAT not set yet — self-trigger chain is OFF. Add the secret to enable 24/7 hunting."
+            exit 0
+          fi
+          sleep 15
+          gh workflow run hunt.yml --repo "$GITHUB_REPOSITORY" \
+            && echo "Queued the next hunt run." \
+            || echo "Self-trigger FAILED — check DISPATCH_PAT has Actions: read+write on this repo."
