@@ -1,0 +1,10 @@
+# Runtime-generated at job time from GitHub Secrets — NEVER commit these
+oci_api_private_key.pem
+oci_config
+oci.env
+ssh_authorized_key.pub
+INSTANCE_CREATED
+*.log
+__pycache__/
+.venv/
+*.pyc

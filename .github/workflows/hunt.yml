@@ -1,0 +1,123 @@
+name: Oracle A1 Hunter
+
+# Tries to create the free A1.Flex (1 OCPU / 6 GB) instance on a schedule,
+# so it hunts 24/7 in GitHub's cloud with no PC required.
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # every 5 minutes (GitHub's minimum)
+  workflow_dispatch: {}      # allow manual runs (for testing)
+
+# Never run two hunts at once.
+concurrency:
+  group: oracle-a1-hunt
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write             # lets a successful run disable future runs
+
+jobs:
+  hunt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install --quiet -r requirements.txt
+
+      - name: Generate OCI config from secrets
+        env:
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+          SSH_PUBLIC_KEY:  ${{ secrets.SSH_PUBLIC_KEY }}
+          OCI_USER:        ${{ secrets.OCI_USER }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_TENANCY:     ${{ secrets.OCI_TENANCY }}
+          OCI_REGION:      ${{ secrets.OCI_REGION }}
+          OCI_AD:          ${{ secrets.OCI_AD }}
+          OCI_SUBNET_ID:   ${{ secrets.OCI_SUBNET_ID }}
+        run: |
+          printf '%s\n' "$OCI_PRIVATE_KEY" > oci_api_private_key.pem
+          chmod 600 oci_api_private_key.pem
+          printf '%s\n' "$SSH_PUBLIC_KEY" > ssh_authorized_key.pub
+          {
+            echo "[DEFAULT]"
+            echo "user=$OCI_USER"
+            echo "fingerprint=$OCI_FINGERPRINT"
+            echo "tenancy=$OCI_TENANCY"
+            echo "region=$OCI_REGION"
+            echo "key_file=$GITHUB_WORKSPACE/oci_api_private_key.pem"
+          } > oci_config
+          {
+            echo "OCI_CONFIG=$GITHUB_WORKSPACE/oci_config"
+            echo "OCT_FREE_AD=$OCI_AD"
+            echo "DISPLAY_NAME=CoolifyServer"
+            echo "OCI_COMPUTE_SHAPE=VM.Standard.A1.Flex"
+            echo "SECOND_MICRO_INSTANCE=False"
+            echo "REQUEST_WAIT_TIME_SECS=45"
+            echo "SSH_AUTHORIZED_KEYS_FILE=$GITHUB_WORKSPACE/ssh_authorized_key.pub"
+            echo "OCI_SUBNET_ID=$OCI_SUBNET_ID"
+            echo "OCI_IMAGE_ID="
+            echo 'OPERATING_SYSTEM="Canonical Ubuntu"'
+            echo "OS_VERSION=24.04"
+            echo "ASSIGN_PUBLIC_IP=true"
+            echo "BOOT_VOLUME_SIZE=100"
+            echo "NOTIFY_EMAIL=False"
+            echo "DISCORD_WEBHOOK="
+          } > oci.env
+
+      - name: Hunt for the A1 instance
+        run: |
+          set +e
+          timeout 240 python3 main.py
+          echo "main.py exit code: $?"
+          echo "----- launch_instance.log (tail) -----"
+          tail -n 15 launch_instance.log 2>/dev/null || echo "(no launch log this run)"
+
+      - name: Did we get it?
+        id: check
+        run: |
+          if [ -s INSTANCE_CREATED ]; then
+            echo "created=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::INSTANCE CREATED!"
+          else
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            echo "Still out of capacity this run."
+          fi
+
+      - name: Notify Discord on success
+        if: steps.check.outputs.created == 'true'
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          python3 - <<'PY'
+          import os, json, urllib.request
+          wh = os.environ.get('DISCORD_WEBHOOK', '')
+          if wh:
+              body = open('INSTANCE_CREATED').read()[:1500]
+              msg = "\U0001F389 A1 instance CREATED via GitHub Actions!\n```\n" + body + "\n```"
+              data = json.dumps({"username": "Oracle Bot", "content": msg}).encode()
+              req = urllib.request.Request(wh, data=data, headers={'Content-Type': 'application/json'})
+              urllib.request.urlopen(req, timeout=15)
+              print("Discord notified.")
+          PY
+
+      - name: Upload instance details
+        if: steps.check.outputs.created == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: INSTANCE_CREATED
+          path: INSTANCE_CREATED
+          if-no-files-found: ignore
+
+      - name: Stop the schedule on success
+        if: steps.check.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow disable "Oracle A1 Hunter" || true
