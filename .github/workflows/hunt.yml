@@ -121,3 +121,38 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow disable "Oracle A1 Hunter" || true
+
+      - name: Notify Discord on config/auth error
+        if: success() && (hashFiles('ERROR_IN_CONFIG.log') != '' || hashFiles('UNHANDLED_ERROR.log') != '')
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          python3 - <<'PY'
+          import os, json, urllib.request
+          wh = os.environ.get('DISCORD_WEBHOOK', '')
+          if wh:
+              txt = ''
+              for f in ('ERROR_IN_CONFIG.log', 'UNHANDLED_ERROR.log'):
+                  try:
+                      txt += open(f).read()
+                  except FileNotFoundError:
+                      pass
+              msg = "⚠️ Oracle A1 Hunter: CONFIG/AUTH ERROR (needs attention, not just capacity)\n```\n" + txt[:1400] + "\n```"
+              data = json.dumps({"username": "Oracle Bot", "content": msg}).encode()
+              urllib.request.urlopen(urllib.request.Request(wh, data=data, headers={'Content-Type': 'application/json'}), timeout=15)
+          PY
+
+      - name: Notify Discord if the run failed
+        if: failure()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          import os, json, urllib.request
+          wh = os.environ.get('DISCORD_WEBHOOK', '')
+          if wh:
+              msg = "\U0001F6A8 Oracle A1 Hunter: a run FAILED (infra/setup error). Check: " + os.environ.get('RUN_URL', '')
+              data = json.dumps({"username": "Oracle Bot", "content": msg}).encode()
+              urllib.request.urlopen(urllib.request.Request(wh, data=data, headers={'Content-Type': 'application/json'}), timeout=15)
+          PY

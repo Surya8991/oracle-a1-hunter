@@ -1,0 +1,29 @@
+name: Hunter Heartbeat
+
+# Once-a-day Discord "still alive" ping so you know the hunter is running
+# without checking GitHub. Also doubles as proof the scheduler is firing.
+on:
+  schedule:
+    - cron: '30 3 * * *'   # 03:30 UTC = 09:00 IST, daily
+  workflow_dispatch: {}
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Daily Discord heartbeat
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          python3 - <<'PY'
+          import os, json, urllib.request, datetime
+          wh = os.environ.get('DISCORD_WEBHOOK', '')
+          if wh:
+              now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+              msg = "\U0001FAC0 Oracle A1 Hunter heartbeat — still running and hunting the free A1 (no instance grabbed yet). " + now
+              data = json.dumps({"username": "Oracle Bot", "content": msg}).encode()
+              urllib.request.urlopen(urllib.request.Request(wh, data=data, headers={'Content-Type': 'application/json'}), timeout=15)
+              print("Heartbeat sent.")
+          else:
+              print("No DISCORD_WEBHOOK secret set.")
+          PY
