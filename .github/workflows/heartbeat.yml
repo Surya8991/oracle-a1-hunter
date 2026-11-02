@@ -22,7 +22,8 @@ jobs:
               now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
               msg = "\U0001FAC0 Oracle A1 Hunter heartbeat — still running and hunting the free A1 (no instance grabbed yet). " + now
               data = json.dumps({"username": "Oracle Bot", "content": msg}).encode()
-              urllib.request.urlopen(urllib.request.Request(wh, data=data, headers={'Content-Type': 'application/json'}), timeout=15)
+              hdrs = {'Content-Type': 'application/json', 'User-Agent': 'OracleA1Hunter'}
+              urllib.request.urlopen(urllib.request.Request(wh, data=data, headers=hdrs), timeout=15)
               print("Heartbeat sent.")
           else:
               print("No DISCORD_WEBHOOK secret set.")
