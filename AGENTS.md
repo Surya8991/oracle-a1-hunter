@@ -17,6 +17,9 @@
   success writes `INSTANCE_CREATED`, pings Discord, uploads an artifact, and disables the schedule.
 - Controls: Actions tab → *Oracle A1 Hunter* → Disable / Run workflow.
 - Change size: edit `ocpus` / `memory_in_gbs` near line ~475 of `main.py`.
+- Fault domains: with `ROTATE_FAULT_DOMAINS=True` (set in `hunt.yml`), tries rotate through
+  "auto" plus each fault domain of the AD, starting at a random one each run. Set it to `False`
+  to always let Oracle pick.
 
 ## Secrets (important)
 - Stored as **GitHub repo secrets** (Settings → Secrets and variables → Actions):
