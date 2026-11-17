@@ -3,6 +3,7 @@ import itertools
 import json
 import logging
 import os
+import random
 import smtplib
 import sys
 import time
@@ -40,6 +41,9 @@ NOTIFY_EMAIL = os.getenv("NOTIFY_EMAIL", 'False').strip().lower() == 'true'
 EMAIL = os.getenv("EMAIL", "").strip()
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "").strip()
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK", "").strip()
+# When true, launch attempts cycle through each AD's fault domains as well as
+# letting Oracle pick ("auto"), instead of always letting Oracle pick.
+ROTATE_FAULT_DOMAINS = os.getenv("ROTATE_FAULT_DOMAINS", 'False').strip().lower() == 'true'
 
 # Read the configuration from oci_config file
 config = configparser.ConfigParser()
@@ -415,6 +419,43 @@ def send_discord_message(message):
             logging.error("Failed to send Discord message: %s", e)
 
 
+def build_placements(compartment_id, ad_names):
+    """Build the (availability domain, fault domain) pairs to try launching in.
+
+    A fault domain of None means "let Oracle pick", which is the original
+    behaviour and stays in the rotation. With ROTATE_FAULT_DOMAINS on, each
+    AD's named fault domains are added after it. If fault domains can't be
+    listed, that AD falls back to "let Oracle pick" only, so a lookup problem
+    never stops the hunt.
+
+    The list starts at a random position: each GitHub Actions run only makes a
+    few attempts, so a fixed start would keep skipping the last entries.
+
+    Args:
+        compartment_id (str): The tenancy (root compartment) ID.
+        ad_names (list): Full availability domain names to launch in.
+
+    Returns:
+        list: (availability_domain, fault_domain or None) tuples.
+    """
+    placements = []
+    for ad_name in ad_names:
+        placements.append((ad_name, None))
+        if not ROTATE_FAULT_DOMAINS:
+            continue
+        try:
+            fault_domains = iam_client.list_fault_domains(
+                compartment_id=compartment_id, availability_domain=ad_name).data
+            placements.extend((ad_name, fd.name) for fd in fault_domains)
+        except (oci.exceptions.ServiceError, oci.exceptions.RequestException) as fd_err:
+            logging.warning("Could not list fault domains for %s, using auto only: %s",
+                            ad_name, fd_err)
+    if placements:
+        start = random.randrange(len(placements))
+        placements = placements[start:] + placements[:start]
+    return placements
+
+
 def launch_instance():
     """Launches an OCI Compute instance using the specified parameters.
 
@@ -432,8 +473,10 @@ def launch_instance():
                                                compartment_id=oci_tenancy)
     oci_ad_name = [item.name for item in availability_domains if
                    any(item.name.endswith(oct_ad) for oct_ad in OCT_FREE_AD.split(","))]
-    oci_ad_names = itertools.cycle(oci_ad_name)
     logging.info("OCI_AD_NAME: %s", oci_ad_name)
+    placement_list = build_placements(oci_tenancy, oci_ad_name)
+    placements = itertools.cycle(placement_list)
+    logging.info("PLACEMENTS: %s", placement_list)
 
     # Step 3 - Get Subnet ID
     oci_subnet_id = OCI_SUBNET_ID
@@ -477,10 +520,13 @@ def launch_instance():
         shape_config = oci.core.models.LaunchInstanceShapeConfigDetails(ocpus=1, memory_in_gbs=1)
 
     while not instance_exist_flag:
+        ad_name, fault_domain = next(placements)
+        attempt = f"launch_instance ({fault_domain or 'auto fault domain'})"
         try:
             launch_instance_response = compute_client.launch_instance(
                 launch_instance_details=oci.core.models.LaunchInstanceDetails(
-                    availability_domain=next(oci_ad_names),
+                    availability_domain=ad_name,
+                    fault_domain=fault_domain,
                     compartment_id=oci_tenancy,
                     create_vnic_details=oci.core.models.CreateVnicDetails(
                         assign_public_ip=assign_public_ip,
@@ -526,14 +572,14 @@ def launch_instance():
                 "code": srv_err.code,
                 "message": srv_err.message,
             }
-            handle_errors("launch_instance", data, logging_step5)
+            handle_errors(attempt, data, logging_step5)
         except oci.exceptions.RequestException as req_err:
             data = {
                 "status": None,
                 "code": "RequestException",
                 "message": str(req_err),
             }
-            handle_errors("launch_instance", data, logging_step5)
+            handle_errors(attempt, data, logging_step5)
 
 
 if __name__ == "__main__":
