@@ -63,7 +63,7 @@ jobs:
             echo "DISPLAY_NAME=CoolifyServer"
             echo "OCI_COMPUTE_SHAPE=VM.Standard.A1.Flex"
             echo "SECOND_MICRO_INSTANCE=False"
-            echo "REQUEST_WAIT_TIME_SECS=45"
+            echo "REQUEST_WAIT_TIME_SECS=180"
             echo "SSH_AUTHORIZED_KEYS_FILE=$GITHUB_WORKSPACE/ssh_authorized_key.pub"
             echo "OCI_SUBNET_ID=$OCI_SUBNET_ID"
             echo "OCI_IMAGE_ID="
